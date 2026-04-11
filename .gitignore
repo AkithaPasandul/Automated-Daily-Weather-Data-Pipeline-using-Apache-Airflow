@@ -1,0 +1,53 @@
+# Environment & secrets
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Jupyter Notebook 
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Airflow 
+logs/
+plugins/
+airflow.db
+airflow.cfg
+standalone_admin_password.txt
+webserver_config.py
+
+# Docker 
+docker-compose.override.yaml
+docker-compose.override.yml
+
+# OS files
+Thumbs.db
+Desktop.ini
+
+# IDE & editor files 
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Screenshots & report 
+screenshots/*
+report/*
+# Allow the folders themselves to be tracked via a .gitkeep file
+!screenshots/.gitkeep
+!report/.gitkeep
