@@ -1,11 +1,3 @@
-"""
-config.py — Central configuration for the weather pipeline.
-
-Reads environment variables so that credentials are never hardcoded.
-Values are loaded from a .env file when running locally, or from
-Docker Compose environment blocks when running inside a container.
-"""
-
 import os
 from dotenv import load_dotenv
 

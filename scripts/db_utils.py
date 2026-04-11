@@ -1,23 +1,21 @@
-"""
-db_utils.py — Reusable database helper functions.
-
-Provides three clean functions:
-  - get_connection()   : opens a psycopg2 connection to PostgreSQL
-  - create_table()     : creates the weather_data table if it does not exist
-  - insert_weather()   : inserts a single weather record into the table
-"""
-
 import logging
 import psycopg2
-from scripts.config import DB_CONFIG
+
+# Relative import — works correctly whether this module is:
+#   (a) run via `python -m scripts.extract_and_store_weather` from the project root
+#   (b) imported by Airflow inside the container
+# An absolute `from scripts.config import ...` would break if the working
+# directory or sys.path doesn't include the project root — relative imports
+# are always anchored to the package itself, so they are safer.
+from .config import DB_CONFIG
 
 logger = logging.getLogger(__name__)
 
 
 def get_connection():
     """
-    Return a live psycopg2 connection using settings from config.py.
-    Raises an exception if the connection fails.
+    Return an open psycopg2 connection using settings from config.py.
+    Raises an exception if the connection fails (e.g. wrong host/password).
     """
     conn = psycopg2.connect(
         host=DB_CONFIG["host"],
@@ -32,7 +30,7 @@ def get_connection():
 def create_table():
     """
     Create the weather_data table if it does not already exist.
-    Safe to call every time the pipeline runs.
+    Safe to call on every pipeline run — IF NOT EXISTS is idempotent.
     """
     create_sql = """
         CREATE TABLE IF NOT EXISTS weather_data (
@@ -98,7 +96,10 @@ def insert_weather(record: dict):
         with conn.cursor() as cur:
             cur.execute(insert_sql, record)
         conn.commit()
-        logger.info(f"Inserted weather record for {record['city']} at {record['extraction_timestamp']}")
+        logger.info(
+            f"Inserted record for {record['city']} "
+            f"at {record['extraction_timestamp']}"
+        )
     except Exception as e:
         logger.error(f"Failed to insert record: {e}")
         raise

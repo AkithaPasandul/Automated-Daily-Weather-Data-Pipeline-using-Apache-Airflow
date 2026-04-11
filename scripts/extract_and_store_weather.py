@@ -1,28 +1,10 @@
-"""
-extract_and_store_weather.py — Main ETL script for the weather pipeline.
-
-What this script does:
-  1. Calls the Open-Meteo API for current weather in Colombo, Sri Lanka.
-  2. Parses and validates the JSON response.
-  3. Adds an extraction timestamp.
-  4. Ensures the weather_data table exists in PostgreSQL.
-  5. Inserts one row into the table.
-
-Run manually (from the project root directory):
-    python -m scripts.extract_and_store_weather
-
-Called automatically by Airflow via BashOperator when the DAG runs.
-"""
-
 import logging
 import sys
 from datetime import datetime, timezone
 
 import requests
 
-# Relative imports — consistent with db_utils.py.
-# This works because the file is always run as part of the 'scripts' package
-# (either via `python -m scripts.extract_and_store_weather` or imported by Airflow).
+# Relative imports
 from .config import (
     CITY_NAME,
     LATITUDE,
