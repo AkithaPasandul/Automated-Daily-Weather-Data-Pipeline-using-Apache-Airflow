@@ -19,12 +19,12 @@ with DAG(
     description="Extracts daily weather for Colombo and stores it in PostgreSQL",
     default_args=default_args,
     start_date=datetime(2024, 1, 1),
-    schedule="@daily",   # 'schedule' replaces the deprecated 'schedule_interval'
-    catchup=False,       # do not run historical dates on first start
+    schedule="@daily",   
+    catchup=False,       
     tags=["weather", "coursework"],
 ) as dag:
 
-    # Task: extract and store weather data
+    # extract and store weather data
     extract_and_store = BashOperator(
         task_id="extract_and_store_weather",
         bash_command="cd /opt/airflow && python -m scripts.extract_and_store_weather",
