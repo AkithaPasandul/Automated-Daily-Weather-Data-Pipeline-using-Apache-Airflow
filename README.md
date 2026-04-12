@@ -1,10 +1,10 @@
 # Weather Airflow Pipeline
 
 A local automated weather data pipeline built with Apache Airflow, Docker Compose,
-PostgreSQL, and Jupyter Notebook.
+PostgreSQL and Jupyter Notebook.
 
 **Course:** Data Science Undergraduate — Automated Data Pipeline Coursework  
-**Data source:** [Open-Meteo API](https://open-meteo.com/) (free, no API key required)  
+**Data source:** [Open-Meteo API](https://open-meteo.com/)  
 **Location:** Colombo, Sri Lanka
 
 ---
@@ -15,31 +15,29 @@ PostgreSQL, and Jupyter Notebook.
 weather-airflow-pipeline/
 │
 ├── dags/
-│   └── weather_pipeline_dag.py       ← Airflow DAG (daily schedule)
+│   └── weather_pipeline_dag.py              ← Airflow DAG (daily schedule)
 │
 ├── scripts/
-│   ├── __init__.py                   ← Makes 'scripts' a Python package
-│   ├── config.py                     ← All settings read from environment variables
-│   ├── db_utils.py                   ← get_connection(), create_table(), insert_weather()
-│   └── extract_and_store_weather.py  ← Main ETL: API → parse → PostgreSQL
+│   ├── __init__.py                          ← Makes 'scripts' a Python package
+│   ├── config.py                            ← All settings read from environment variables
+│   ├── db_utils.py                          ← get_connection(), create_table(), insert_weather()
+│   ├── extract_and_store_weather.py         ← Main ETL: API → parse → PostgreSQL
+│   └── backfill_historical_weather.py       ← One-off script: loads 30 days of history
 │
 ├── notebooks/
-│   └── weather_visualization.ipynb   ← Connects to DB and draws charts
+│   └── weather_visualization.ipynb          ← Connects to DB and draws charts
 │
 ├── sql/
-│   ├── init_db.sh                    ← Creates weather_db on first Postgres startup
-│   ├── init_db.sql                   ← Creates weather_data table inside weather_db
-│   └── create_weather_table.sql      ← Reference DDL (informational only)
+│   ├── init_db.sh                           ← Creates weather_db on first Postgres startup
+│   ├── init_db.sql                          ← Creates weather_data table inside weather_db
+│   └── create_weather_table.sql             ← Reference DDL (informational only)
 │
-├── config/                           ← Empty folder required by Airflow
-├── logs/                             ← Airflow writes task logs here
-├── plugins/                          ← Empty folder required by Airflow
-├── screenshots/                      ← Save your report screenshots here
-├── report/                           ← Save your written report here
+├── config/                                  ← Empty folder required by Airflow
+├── logs/                                    ← Airflow writes task logs here (git-ignored)
+├── plugins/                                 ← Empty folder required by Airflow
 │
 ├── requirements.txt
 ├── docker-compose.yaml
-├── .env.example
 ├── .gitignore
 └── README.md
 ```
@@ -65,24 +63,28 @@ Follow these steps **in order**. Do not skip any step.
 # Windows Command Prompt:
 copy .env.example .env
 
-# PowerShell or Git Bash:
+# PowerShell:
+Copy-Item .env.example .env
+
+# Git Bash / WSL / macOS:
 cp .env.example .env
 ```
 
-No values need to be changed for a local setup.
+No values need to be changed for a basic local setup.
 
 ### Step 2 — Create all required local directories
 
-Airflow and Docker expect these folders to exist before containers start.
+Airflow and Docker expect these folders to exist before the containers start.
 
 ```bash
 # Windows Command Prompt — run each line separately:
 mkdir logs
 mkdir plugins
 mkdir config
+mkdir screenshots
 
 # Git Bash / WSL / macOS:
-mkdir -p logs plugins config
+mkdir -p logs plugins config screenshots
 ```
 
 ### Step 3 — Make the database init script executable (Git Bash / WSL only)
@@ -91,7 +93,7 @@ mkdir -p logs plugins config
 chmod +x sql/init_db.sh
 ```
 
-> Windows Command Prompt users can skip this step — Docker handles permissions automatically.
+> Windows Command Prompt and PowerShell users can skip this step — Docker handles permissions automatically.
 
 ### Step 4 — Start PostgreSQL and wait for it to be healthy
 
@@ -114,8 +116,7 @@ If it says `starting`, wait a few more seconds and run `docker compose ps` again
 docker compose up airflow-init
 ```
 
-Run this in the **foreground** so you can watch the output.  
-Wait until you see a line containing `airflow version` printed near the end — that means it succeeded. The container then exits automatically with code 0. **This is expected.**
+Run this in the **foreground** so you can watch the output. The container runs database migrations, creates the admin user, then prints the Airflow version number (e.g. `2.8.1`) and exits automatically with code 0. **This is expected and correct.**
 
 ### Step 6 — Start the webserver and scheduler
 
@@ -129,14 +130,16 @@ docker compose up -d airflow-webserver airflow-scheduler
 docker compose ps
 ```
 
-Expected output:
+You should see four containers. The exact name prefix depends on your folder name, but the statuses should match:
 
-| Name | Status |
-|------|--------|
-| weather_postgres | healthy |
-| project-final-airflow-init-1 | exited (0) — correct |
-| project-final-airflow-webserver-1 | running |
-| project-final-airflow-scheduler-1 | running |
+| Container | Status |
+|-----------|--------|
+| `weather_postgres` | `healthy` |
+| `...-airflow-init-1` | `exited (0)` — correct, this is expected |
+| `...-airflow-webserver-1` | `running` |
+| `...-airflow-scheduler-1` | `running` |
+
+> The `...` prefix is your project folder name (e.g. `weather-airflow-pipeline`). Only `weather_postgres` has a fixed name because it is set explicitly in `docker-compose.yaml`.
 
 ### Step 8 — Open the Airflow UI
 
@@ -162,7 +165,25 @@ docker exec -it weather_postgres psql -U airflow -d weather_db -c "SELECT * FROM
 
 You should see one row per successful DAG run.
 
-### Step 11 — Run the Jupyter Notebook
+### Step 11 — Back-fill 30 days of historical data (recommended)
+
+The DAG inserts one record per day. To get enough data for meaningful charts,
+run the back-fill script once to load 30 days of hourly historical data (~720 rows):
+
+```bash
+# Make sure your .env has POSTGRES_HOST=localhost, then run from the project root:
+python -m scripts.backfill_historical_weather
+```
+
+To choose a different number of days (between 1 and 365):
+
+```bash
+python -m scripts.backfill_historical_weather --days 14
+```
+
+The script is safe to run multiple times — it skips any timestamps already in the database.
+
+### Step 12 — Run the Jupyter Notebook
 
 Install dependencies on your **host machine** (not inside Docker):
 
@@ -184,7 +205,7 @@ Charts are saved automatically to the `screenshots/` folder.
 
 ## Testing the ETL Script Manually
 
-You can run the extraction script directly on your host machine to verify it works before Airflow runs it. Make sure your `.env` file has `POSTGRES_HOST=localhost` (not `postgres`).
+You can run the main extraction script directly on your host machine to verify it works before Airflow runs it. Make sure your `.env` file has `POSTGRES_HOST=localhost` (not `postgres`).
 
 ```bash
 # From the project root:
@@ -211,6 +232,9 @@ docker-compose.yaml
                       ├── scripts/db_utils.py   (DB helpers)
                       └── Open-Meteo API → parse → INSERT into weather_data
 
+scripts/backfill_historical_weather.py  (run once manually)
+  └── Open-Meteo Historical API → 30 days × 24 hours → bulk INSERT into weather_data
+
 notebooks/weather_visualization.ipynb
   └── SQLAlchemy → localhost:5432/weather_db
       └── reads weather_data → matplotlib charts → saves PNGs to screenshots/
@@ -224,27 +248,13 @@ notebooks/weather_visualization.ipynb
 |---------|-----|
 | `weather_postgres` stuck on `starting` | Run `docker compose logs postgres`. If it shows "database system is ready", just wait another 10 s. |
 | `airflow-init` exits with non-zero code | Run `docker compose logs airflow-init`. Usually a permissions or DB connection issue. Try `docker compose down -v` then repeat from Step 4. |
-| Webserver not reachable at :8080 | It takes 30–60 s to start. Run `docker compose logs airflow-webserver` to check progress. |
+| Webserver not reachable at :8080 | It takes 30–60 s to start after Step 6. Run `docker compose logs airflow-webserver` to watch progress. |
 | DAG not visible in UI | Wait 30 s for the scheduler to scan. Check `docker compose logs airflow-scheduler` for import errors. |
-| Task fails: `ModuleNotFoundError: scripts` | The `PYTHONPATH=/opt/airflow` env var in both docker-compose.yaml and the DAG's `env` dict fixes this. Confirm `./scripts` is listed in the volumes section. |
-| `weather_db does not exist` | The `init_db.sh` script only runs on the very first startup. If you started postgres before the sql/ files existed, tear down the volume: `docker compose down -v` then repeat from Step 4. |
-| Notebook: `connection refused` on port 5432 | Confirm Docker is running (`docker compose ps`). Confirm you are using `localhost`, not `postgres`, in the DB_URL. |
-| Manual script: `could not connect to server` | Confirm `.env` has `POSTGRES_HOST=localhost` (not `postgres`). `postgres` only resolves inside Docker's network. |
+| Task fails: `ModuleNotFoundError: scripts` | The `PYTHONPATH=/opt/airflow` env var in both `docker-compose.yaml` and the DAG's `env` dict fixes this. Confirm `./scripts` is listed in the volumes section. |
+| `weather_db does not exist` | `init_db.sh` only runs on the very first Postgres startup. If you started postgres before the `sql/` files existed, tear down the volume and restart: `docker compose down -v` then repeat from Step 4. |
+| Notebook: `connection refused` on port 5432 | Confirm Docker is running (`docker compose ps`). Confirm you are using `localhost`, not `postgres`, in the DB URL. |
+| Notebook: `FileNotFoundError: screenshots/` | Run `mkdir screenshots` from the project root, then re-run the notebook cell. |
+| Manual script: `could not connect to server` | Confirm `.env` has `POSTGRES_HOST=localhost` (not `postgres`). `postgres` only resolves inside Docker's internal network. |
+| Backfill script: `connection refused` | Same as above — Docker containers must be running and `.env` must have `POSTGRES_HOST=localhost`. |
 
 ---
-
-## What Screenshots to Capture for the Report
-
-| # | Filename | What to capture |
-|---|----------|-----------------|
-| 1 | `docker_containers_running.png` | `docker compose ps` — all 4 containers listed with their statuses |
-| 2 | `airflow_ui_login.png` | Login screen at http://localhost:8080 |
-| 3 | `airflow_dag_list.png` | DAGs page with `daily_weather_pipeline` toggled On |
-| 4 | `airflow_dag_graph.png` | Graph view with the task box coloured green (success) |
-| 5 | `airflow_task_logs.png` | Task log showing API call, parsed values, "Pipeline completed successfully" |
-| 6 | `postgres_table_data.png` | `SELECT * FROM weather_data;` output showing inserted rows |
-| 7 | `jupyter_notebook_cells.png` | Notebook in browser with all cells executed, no errors |
-| 8 | `chart_temperature.png` | Temperature chart (auto-saved by notebook) |
-| 9 | `chart_wind_speed.png` | Wind speed chart (auto-saved by notebook) |
-| 10 | `chart_humidity.png` | Humidity chart (auto-saved by notebook) |
-| 11 | `project_folder_structure.png` | File explorer or `tree` output showing full project layout |
