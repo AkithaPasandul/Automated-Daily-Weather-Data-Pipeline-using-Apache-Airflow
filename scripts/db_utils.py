@@ -1,12 +1,7 @@
 import logging
 import psycopg2
 
-# Relative import — works correctly whether this module is:
-#   (a) run via `python -m scripts.extract_and_store_weather` from the project root
-#   (b) imported by Airflow inside the container
-# An absolute `from scripts.config import ...` would break if the working
-# directory or sys.path doesn't include the project root — relative imports
-# are always anchored to the package itself, so they are safer.
+# Relative import 
 from .config import DB_CONFIG
 
 logger = logging.getLogger(__name__)
@@ -28,49 +23,43 @@ def get_connection():
 
 
 def create_table():
-    """
-    Create the weather_data table if it does not already exist.
-    Safe to call on every pipeline run — IF NOT EXISTS is idempotent.
-    """
+    """Create the weather_data table if it doesn't exist."""
+    
     create_sql = """
         CREATE TABLE IF NOT EXISTS weather_data (
-            id                    SERIAL PRIMARY KEY,
-            extraction_timestamp  TIMESTAMP NOT NULL,
-            city                  VARCHAR(100) NOT NULL,
-            temperature_2m        FLOAT,
-            relative_humidity_2m  FLOAT,
-            wind_speed_10m        FLOAT,
-            surface_pressure      FLOAT,
-            weather_code          INT
+            id SERIAL PRIMARY KEY,
+            extraction_timestamp TIMESTAMP NOT NULL,
+            city VARCHAR(100) NOT NULL,
+            temperature_2m FLOAT NOT NULL,
+            relative_humidity_2m FLOAT NOT NULL,
+            wind_speed_10m FLOAT,
+            surface_pressure FLOAT,
+            weather_code INT
         );
     """
-    conn = None
+
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            cur.execute(create_sql)
-        conn.commit()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(create_sql)
         logger.info("Table 'weather_data' is ready.")
+
     except Exception as e:
         logger.error(f"Failed to create table: {e}")
         raise
-    finally:
-        if conn:
-            conn.close()
 
 
 def insert_weather(record: dict):
+    """Insert a weather record into the database. Expects a dict with keys:
+    - extraction_timestamp (datetime)
+    - city (str)
+    - temperature_2m (float)
+    - relative_humidity_2m (float)
+    - wind_speed_10m (float)
+    - surface_pressure (float)
+    - weather_code (int)
     """
-    Insert one row into the weather_data table.
-
-    Parameters
-    ----------
-    record : dict
-        Must contain these keys:
-        extraction_timestamp, city, temperature_2m,
-        relative_humidity_2m, wind_speed_10m,
-        surface_pressure, weather_code
-    """
+    
     insert_sql = """
         INSERT INTO weather_data (
             extraction_timestamp,
@@ -90,19 +79,17 @@ def insert_weather(record: dict):
             %(weather_code)s
         );
     """
-    conn = None
+
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            cur.execute(insert_sql, record)
-        conn.commit()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(insert_sql, record)
+
         logger.info(
             f"Inserted record for {record['city']} "
             f"at {record['extraction_timestamp']}"
         )
+
     except Exception as e:
         logger.error(f"Failed to insert record: {e}")
         raise
-    finally:
-        if conn:
-            conn.close()

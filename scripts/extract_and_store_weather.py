@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 
 import requests
 
-# Relative imports
 from .config import (
     CITY_NAME,
     LATITUDE,
@@ -14,7 +13,6 @@ from .config import (
 )
 from .db_utils import create_table, insert_weather
 
-# Logging setup
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -24,21 +22,11 @@ logger = logging.getLogger(__name__)
 
 
 def fetch_weather() -> dict:
-    """
-    Call Open-Meteo API and return the raw JSON response.
-
-    Raises
-    ------
-    requests.exceptions.Timeout
-        If the API does not respond within 10 seconds.
-    requests.exceptions.HTTPError
-        If the API returns a 4xx or 5xx status code.
-    """
     params = {
-        "latitude":  LATITUDE,
+        "latitude": LATITUDE,
         "longitude": LONGITUDE,
-        "current":   ",".join(WEATHER_VARIABLES),
-        "timezone":  "Asia/Colombo",
+        "current": ",".join(WEATHER_VARIABLES),
+        "timezone": "Asia/Colombo",
     }
 
     logger.info(f"Requesting weather data for {CITY_NAME} ({LATITUDE}, {LONGITUDE})")
@@ -52,20 +40,6 @@ def fetch_weather() -> dict:
 
 
 def parse_weather(data: dict) -> dict:
-    """
-    Extract required fields from the Open-Meteo API response.
-
-    The API returns current conditions under data["current"].
-    We validate that every expected field is present before reading values.
-
-    Parameters
-    ----------
-    data : dict  — raw JSON response from Open-Meteo.
-
-    Returns
-    -------
-    dict  — flat record ready to insert into the database.
-    """
     current = data.get("current")
     if not current:
         raise ValueError("'current' key missing from API response.")
@@ -75,14 +49,13 @@ def parse_weather(data: dict) -> dict:
         raise ValueError(f"Missing fields in API response: {missing}")
 
     record = {
-        # Store as timezone-naive UTC timestamp (PostgreSQL TIMESTAMP type)
         "extraction_timestamp": datetime.now(timezone.utc).replace(tzinfo=None),
-        "city":                 CITY_NAME,
-        "temperature_2m":       current["temperature_2m"],
+        "city": CITY_NAME,
+        "temperature_2m": current["temperature_2m"],
         "relative_humidity_2m": current["relative_humidity_2m"],
-        "wind_speed_10m":       current["wind_speed_10m"],
-        "surface_pressure":     current["surface_pressure"],
-        "weather_code":         int(current["weather_code"]),
+        "wind_speed_10m": current["wind_speed_10m"],
+        "surface_pressure": current["surface_pressure"],
+        "weather_code": int(current["weather_code"]),
     }
 
     logger.info(
@@ -94,20 +67,20 @@ def parse_weather(data: dict) -> dict:
 
 
 def run():
-    """
-    Orchestrate the full extract → parse → store pipeline.
-    Returns 0 on success, 1 on any failure.
-    """
     try:
-        create_table()               # idempotent — safe to call every run
+        create_table()
         raw_data = fetch_weather()
-        record   = parse_weather(raw_data)
+        record = parse_weather(raw_data)
         insert_weather(record)
         logger.info("Pipeline completed successfully.")
         return 0
 
     except requests.exceptions.Timeout:
         logger.error("API request timed out after 10 seconds.")
+        return 1
+
+    except requests.exceptions.ConnectionError:
+        logger.error("Failed to connect to the weather API.")
         return 1
 
     except requests.exceptions.HTTPError as e:
