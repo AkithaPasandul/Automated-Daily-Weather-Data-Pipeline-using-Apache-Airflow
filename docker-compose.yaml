@@ -4,22 +4,28 @@
 #
 # Modifications made for this coursework project:
 #   - Switched CeleryExecutor → LocalExecutor (removes Redis, worker, triggerer)
+#   - Pinned image to apache/airflow:2.8.1-python3.11 (pandas 2.1.4 needs Python ≥3.9)
 #   - Added ./scripts volume so ETL package is importable inside containers
 #   - Added ./config volume (required by Airflow; directory must exist locally)
 #   - Added init_db.sh + init_db.sql mounts to auto-create weather_db on first start
 #   - Exposed postgres port 5432 to host so Jupyter Notebook can connect
-#   - Set a fixed Fernet key (fine for local dev — never commit to production)
+#   - Set a fixed Fernet key (fine for local dev — never use in production)
 #   - Disabled example DAGs (cleaner UI for coursework)
 #   - Set _PIP_ADDITIONAL_REQUIREMENTS directly in the file (not via .env)
 #   - Added PYTHONPATH=/opt/airflow so BashOperator subprocess can find 'scripts'
 #   - Added all weather pipeline env vars (DB name, coordinates, city)
+#   - Added explicit restart: "no" on airflow-init so it doesn't loop forever
 #   - Removed Redis, Celery worker, triggerer, flower, airflow-cli services
 #   - Pinned postgres:15 (consistent with rest of project)
 
 ---
 x-airflow-common:
   &airflow-common
-  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.8.1}
+  # IMPORTANT: must use the -python3.11 variant.
+  # The plain apache/airflow:2.8.1 tag ships Python 3.8.
+  # pandas==2.1.4 requires Python >=3.9 and will fail to install on Python 3.8,
+  # causing the container to exit with code 1 and restart in an infinite loop.
+  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.8.1-python3.11}
   environment:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -31,7 +37,11 @@ x-airflow-common:
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
     # Extra Python packages installed into every Airflow container at startup.
     # This is the official mechanism — avoids running pip inside bash commands.
-    _PIP_ADDITIONAL_REQUIREMENTS: 'requests==2.31.0 pandas==2.1.4 psycopg2-binary==2.9.9 sqlalchemy==2.0.25 python-dotenv==1.0.0'
+        # sqlalchemy is intentionally excluded — Airflow 2.8.1 ships SQLAlchemy 1.4.x
+    # and requires it. Installing sqlalchemy==2.0.25 overwrites the built-in version
+    # and breaks Airflow's own DB connection with an ArgumentError on startup.
+    # SQLAlchemy is only needed in requirements.txt for Jupyter on the host machine.
+    _PIP_ADDITIONAL_REQUIREMENTS: 'requests==2.31.0 pandas==2.1.4 psycopg2-binary==2.9.9 python-dotenv==1.0.0'
     # Required so BashOperator subprocesses can import the 'scripts' package.
     PYTHONPATH: /opt/airflow
     # ── Weather pipeline environment variables ─────────────────────────────────
@@ -70,8 +80,8 @@ services:
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
       # init_db.sh and init_db.sql run ONCE on the very first container startup.
-      # Docker executes .sh and .sql files in /docker-entrypoint-initdb.d/ in
-      # alphabetical order. init_db.sh (runs first) creates weather_db and then
+      # Docker runs .sh and .sql files in /docker-entrypoint-initdb.d/ in
+      # alphabetical order. init_db.sh (runs first) creates weather_db, then
       # calls init_db.sql to create the weather_data table inside it.
       - ${AIRFLOW_PROJ_DIR:-.}/sql/init_db.sh:/docker-entrypoint-initdb.d/init_db.sh
       - ${AIRFLOW_PROJ_DIR:-.}/sql/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
@@ -86,8 +96,13 @@ services:
 
   # ── Airflow initialisation ────────────────────────────────────────────────────
   # Runs once to migrate the Airflow metadata DB and create the admin user,
-  # then exits with code 0. The webserver and scheduler wait for this to
-  # complete successfully before starting (service_completed_successfully).
+  # then exits with code 0. The webserver and scheduler depend on this service
+  # completing successfully (service_completed_successfully) before they start.
+  #
+  # restart: "no" is REQUIRED here. airflow-init inherits the common block but
+  # must NOT restart — if pip install fails or the DB is briefly unavailable,
+  # restart: always would cause an infinite restart loop that blocks the
+  # webserver and scheduler from ever starting.
   airflow-init:
     <<: *airflow-common
     entrypoint: /bin/bash
@@ -105,6 +120,7 @@ services:
       _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-admin}
       _PIP_ADDITIONAL_REQUIREMENTS: ''   # skip pip install during init — not needed
     user: "0:0"
+    restart: "no"                        # must not restart — init runs exactly once
     volumes:
       - ${AIRFLOW_PROJ_DIR:-.}:/sources
 
